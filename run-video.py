@@ -1,8 +1,7 @@
 import cv2
 from ultralytics import YOLO
 
-model_path = "runs/detect/runs/cow_detection/my_first_train3/weights/best.pt"
-model = YOLO(model_path)
+model = YOLO("cow_clean.pt")
 
 # Открываем видеофайл
 video_path = "testvid1.mp4"  # Имя идеофайла

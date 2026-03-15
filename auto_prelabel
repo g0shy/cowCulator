@@ -1,0 +1,63 @@
+from ultralytics import YOLO
+import os
+from pathlib import Path
+
+# ================= НАСТРОЙКИ =================
+# 1. Путь к твоей обученной модели (можно best.pt или cow_clean.pt)
+model_path = "cow_clean.pt"
+
+# 2. Папка, где лежат твои новые фотки (кадры из видео)
+images_dir = "frames"
+
+# 3. Папка, куда сохранить разметку (создастся сама)
+labels_dir = "labels"
+
+# 4. Порог уверенности (ставлю низкий, чтобы поймать всех, лишнее удалишь)
+CONF_THRESHOLD = 0.25
+# =============================================
+
+# Создаем папки
+os.makedirs(labels_dir, exist_ok=True)
+
+print(f"⏳ Загружаю модель: {model_path}...")
+model = YOLO(model_path)
+
+# Получаем список картинок
+supported_formats = ('.jpg', '.jpeg', '.png', '.bmp')
+image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(supported_formats)]
+
+print(f"🚀 Найдено {len(image_files)} изображений. Начинаю авто-разметку...")
+
+for img_name in image_files:
+    img_path = os.path.join(images_dir, img_name)
+    txt_name = os.path.splitext(img_name)[0] + ".txt"
+    txt_path = os.path.join(labels_dir, txt_name)
+
+    # Запускаем детекцию
+    # stream=True экономит память, если фоток много
+    results = model(img_path, conf=CONF_THRESHOLD, verbose=False)
+
+    # Записываем результат в файл
+    with open(txt_path, "w") as f:
+        for result in results:
+            for box in result.boxes:
+                # === ГЛАВНЫЙ ФИКС ===
+                # Мы игнорируем, какой там класс увидела модель (0, 1 или 2).
+                # Мы ПРИНУДИТЕЛЬНО пишем "0", чтобы объединить всех коров в одну кучу.
+                class_id = 0 
+                
+                # Получаем координаты (центр_х, центр_у, ширина, высота)
+                # Они уже нормализованы (от 0 до 1), как любит YOLO
+                x, y, w, h = box.xywhn[0].tolist()
+                
+                # Пишем строку: 0 x y w h
+                f.write(f"{class_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f}\n")
+
+print(f"✅ Готово! Размечено {len(image_files)} файлов.")
+
+# === БОНУС: Создаем файл classes.txt для LabelImg ===
+classes_txt_path = os.path.join(labels_dir, "classes.txt")
+with open(classes_txt_path, "w") as f:
+    f.write("Cow")
+
+print(f"📄 Создан файл {classes_txt_path}. Теперь LabelImg точно покажет 'Cow'.")

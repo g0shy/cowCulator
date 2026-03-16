@@ -1,0 +1,10 @@
+#треним на первом видео ментора(жора молодец нарезал)
+
+path: /home/zer0p1e/cowCulator
+
+train: train_dataset_1/images/train
+
+val: train_dataset_1/images/train
+
+names:
+  0: Cow

@@ -4,13 +4,13 @@ from pathlib import Path
 
 # ================= НАСТРОЙКИ =================
 # 1. Путь к твоей обученной модели (можно best.pt или cow_clean.pt)
-model_path = "cow_clean.pt"
+model_path = "runs/detect/runs/cow_detection/tune_v13/weights/best.pt"
 
 # 2. Папка, где лежат твои новые фотки (кадры из видео)
-images_dir = "frames"
+images_dir = "frames2"
 
 # 3. Папка, куда сохранить разметку (создастся сама)
-labels_dir = "labels"
+labels_dir = "labels2"
 
 # 4. Порог уверенности (ставлю низкий, чтобы поймать всех, лишнее удалишь)
 CONF_THRESHOLD = 0.25

@@ -2,8 +2,8 @@ import cv2
 import os
 
 # Настройки
-VIDEO_PATH = 'testvid1.mp4'       # путь к вашему видео
-OUTPUT_DIR = 'frames'                # куда сохранять кадры
+VIDEO_PATH = 'testvid2.mp4'       # путь к вашему видео
+OUTPUT_DIR = 'frames2'                # куда сохранять кадры
 FRAME_INTERVAL = 30                  # каждый 30-й кадр (1 кадр в секунду при 30fps)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -1,26 +1,26 @@
 from ultralytics import YOLO
 
-
 def main():
-    # Загружаем модель
-    model = YOLO("yolo11m.pt")
+    model = YOLO("runs/detect/runs/cow_detection/my_first_train3/weights/best.pt")
 
-    # Запускаем обучение
+    # 2. Запускаем дообучение
     results = model.train(
-        
-        data="/home/zer0p1e/my_yolo_project/cattle-detection.v1i.yolov8/data.yaml",
-        
-        epochs=100,
+        data="data_new.yaml",   #конфиг с путями к папкам
+        epochs=50,
         imgsz=640,
-        device=0,      
-        batch=16,      
-        
+        batch=16,
+        device=0,
         project="runs/cow_detection",
-        name="my_first_train",
-        workers=0   
+        name="tune_v1",
         
+        lr0=0.001,              # Маленькая скорость обучения
+        lrf=0.01,
+        freeze=10,              
+        
+        
+        workers=4               # Если опять упадет —  workers=0
     )
 
-
+# ВОТ ЭТО ОБЯЗАТЕЛЬНО НУЖНО 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Cow Monitor Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        /* Видеопанель */
+        .video-panel {
+            flex: 3;
+            background: #0f0f1a;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #videoCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border-radius: 8px;
+        }
+        
+        /* Инфопанель */
+        .info-panel {
+            flex: 1;
+            background: #16213e;
+            border-left: 2px solid #0f3460;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        
+        /* Вкладки */
+        .tabs {
+            display: flex;
+            background: #0f3460;
+            padding: 0;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            padding: 15px;
+            color: #aaa;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        
+        .tab-btn:hover {
+            background: #1a4a7a;
+            color: #fff;
+        }
+        
+        .tab-btn.active {
+            background: #16213e;
+            color: #00ff9d;
+            border-bottom: 3px solid #00ff9d;
+        }
+        
+        /* Контент вкладок */
+        .tab-content {
+            display: none;
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Счетчик */
+        .counter {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .counter-value {
+            font-size: 48px;
+            font-weight: bold;
+            color: #00ff9d;
+        }
+        
+        .counter-label {
+            font-size: 14px;
+            color: #888;
+        }
+        
+        /* Список коров */
+        .cow-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .cow-item {
+            background: #0f3460;
+            margin: 8px 0;
+            padding: 10px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .cow-id {
+            font-weight: bold;
+            color: #00ff9d;
+        }
+        
+        .cow-state {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #2e5a8a;
+        }
+        
+        /* Лог */
+        .log-container {
+            height: 500px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            padding: 8px;
+            border-bottom: 1px solid #0f3460;
+            margin: 4px 0;
+        }
+        
+        .log-time {
+            color: #00ff9d;
+            font-weight: bold;
+        }
+        
+        .log-message {
+            color: #ccc;
+            margin-left: 10px;
+        }
+        
+        /* Статус подключения */
+        .status {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            background: rgba(0,0,0,0.7);
+        }
+        
+        .status.connected {
+            color: #00ff9d;
+        }
+        
+        .status.disconnected {
+            color: #ff4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-panel">
+            <canvas id="videoCanvas"></canvas>
+        </div>
+        
+        <div class="info-panel">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="stats">📊 Статистика</button>
+                <button class="tab-btn" data-tab="cows">🐄 Коровы</button>
+                <button class="tab-btn" data-tab="log">📋 Лог</button>
+            </div>
+            
+            <div id="stats" class="tab-content active">
+                <div class="counter">
+                    <div class="counter-value" id="cowCount">0</div>
+                    <div class="counter-label">Коров в кадре</div>
+                </div>
+                <div class="info-section">
+                    <h3>Информация</h3>
+                    <p>Последнее обновление: <span id="lastUpdate">--:--:--</span></p>
+                    <p>Статус: <span id="statusText" style="color: #00ff9d;">Подключено</span></p>
+                </div>
+            </div>
+            
+            <div id="cows" class="tab-content">
+                <h3>Детектированные коровы</h3>
+                <div id="cowList" class="cow-list">
+                    <p style="color: #888;">Нет данных</p>
+                </div>
+            </div>
+            
+            <div id="log" class="tab-content">
+                <h3>Лог событий</h3>
+                <div id="logContainer" class="log-container">
+                    <div class="log-entry">📋 Ожидание данных...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status disconnected" id="wsStatus">
+        🔌 Отключено
+    </div>
+    
+    <script>
+        // DOM элементы
+        const canvas = document.getElementById('videoCanvas');
+        const ctx = canvas.getContext('2d');
+        const cowCountSpan = document.getElementById('cowCount');
+        const cowListDiv = document.getElementById('cowList');
+        const logContainer = document.getElementById('logContainer');
+        const lastUpdateSpan = document.getElementById('lastUpdate');
+        const wsStatusDiv = document.getElementById('wsStatus');
+        
+        // WebSocket
+        let ws = null;
+        let reconnectAttempts = 0;
+        
+        // Подключение к WebSocket
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                wsStatusDiv.textContent = '🔌 Подключено';
+                wsStatusDiv.className = 'status connected';
+                reconnectAttempts = 0;
+                addLogEntry('SYSTEM', 'Подключение к серверу установлено');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'frame') {
+                    // Отображаем кадр
+                    const img = new Image();
+                    img.onload = () => {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+                        
+                        // Рисуем рамки поверх изображения
+                        if (data.detections && data.detections.cows) {
+                            drawBoundingBoxes(data.detections.cows);
+                        }
+                    };
+                    img.src = 'data:image/jpeg;base64,' + data.data;
+                    
+                    // Обновляем UI данными детекции
+                    updateUI(data.detections);
+                    
+                } else if (data.type === 'log') {
+                    addLogEntry(data.event, data.message, data.timestamp);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                wsStatusDiv.textContent = '⚠️ Ошибка';
+                wsStatusDiv.className = 'status disconnected';
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket closed');
+                wsStatusDiv.textContent = '🔌 Отключено';
+                wsStatusDiv.className = 'status disconnected';
+                addLogEntry('SYSTEM', 'Соединение потеряно, переподключение...');
+                
+                // Переподключение с задержкой
+                setTimeout(() => {
+                    if (reconnectAttempts < 5) {
+                        reconnectAttempts++;
+                        connectWebSocket();
+                    }
+                }, 3000);
+            };
+        }
+        
+        // Отрисовка bounding boxes на canvas
+        function drawBoundingBoxes(cows) {
+            if (!cows || cows.length === 0) return;
+            
+            ctx.save();
+            ctx.strokeStyle = '#00ff9d';
+            ctx.lineWidth = 2;
+            ctx.font = 'bold 14px monospace';
+            ctx.fillStyle = '#00ff9d';
+            
+            cows.forEach(cow => {
+                const [x1, y1, x2, y2] = cow.bbox;
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                
+                // Подпись с ID
+                const text = `#${cow.id}`;
+                const textMetrics = ctx.measureText(text);
+                const textWidth = textMetrics.width;
+                const textHeight = 16;
+                
+                ctx.fillStyle = '#00ff9d';
+                ctx.fillRect(x1, y1 - textHeight - 2, textWidth + 6, textHeight + 4);
+                ctx.fillStyle = '#000';
+                ctx.fillText(text, x1 + 3, y1 - 4);
+            });
+            
+            ctx.restore();
+        }
+        
+        // Обновление UI (счетчик, список коров)
+        function updateUI(detections) {
+            if (!detections) return;
+            
+            const count = detections.count || 0;
+            cowCountSpan.textContent = count;
+            lastUpdateSpan.textContent = detections.timestamp || '--:--:--';
+            
+            // Обновляем список коров
+            if (detections.cows && detections.cows.length > 0) {
+                cowListDiv.innerHTML = '';
+                detections.cows.forEach(cow => {
+                    const cowItem = document.createElement('div');
+                    cowItem.className = 'cow-item';
+                    cowItem.innerHTML = `
+                        <span class="cow-id">Корова #${cow.id}</span>
+                        <span class="cow-state">уверенность: ${(cow.confidence * 100).toFixed(0)}%</span>
+                    `;
+                    cowListDiv.appendChild(cowItem);
+                });
+            } else {
+                cowListDiv.innerHTML = '<p style="color: #888;">Коров не обнаружено</p>';
+            }
+        }
+        
+        // Добавление записи в лог
+        function addLogEntry(event, message, timestamp) {
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            const time = timestamp || new Date().toLocaleTimeString();
+            logEntry.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span class="log-message">${event}: ${message}</span>
+            `;
+            
+            logContainer.insertBefore(logEntry, logContainer.firstChild);
+            
+            // Ограничиваем количество записей в логе
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+        
+        // Управление вкладками
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+                
+                // Обновляем активные кнопки
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Обновляем активный контент
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+            });
+        });
+        
+        // Запуск подключения
+        connectWebSocket();
+        
+        // Обработка закрытия окна
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>

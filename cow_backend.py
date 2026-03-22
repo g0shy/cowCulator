@@ -119,7 +119,7 @@ class CowMonitorServer:
                 await self.unregister(client)
 
 async def handle_client(websocket, server):
-    """Обработчик WebSocket соединения (только один аргумент)"""
+    """Обработчик WebSocket соединения"""
     await server.register(websocket)
     try:
         async for message in websocket:
@@ -127,7 +127,6 @@ async def handle_client(websocket, server):
             data = json.loads(message)
             if data.get('command') == 'stop':
                 print("Получена команда остановки")
-                # Здесь можно добавить логику остановки
     except:
         pass
     finally:
@@ -135,13 +134,12 @@ async def handle_client(websocket, server):
 
 async def websocket_server(server):
     """Запуск WebSocket сервера"""
-    # Создаем обработчик с замыканием для передачи server
     async def handler(websocket):
         await handle_client(websocket, server)
     
     async with websockets.serve(handler, "localhost", WS_PORT):
         print(f"WebSocket сервер запущен на порту {WS_PORT}")
-        await asyncio.Future()  # Бесконечно работаем
+        await asyncio.Future()
 
 async def process_video(server):
     """Обработка видео и отправка кадров"""
@@ -175,9 +173,20 @@ async def process_video(server):
     
     last_log_time = 0
     last_count = 0
-    frame_skip = 0  # Счетчик для пропуска кадров
+    
+    # Для сглаживания детекций
+    last_detections = []
+    smoothing_frames = 3  # Количество кадров для сглаживания
     
     print("Запуск цикла обработки...")
+    
+    # Получаем FPS видео для правильной задержки
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        fps = 30
+    frame_delay = 1.0 / fps
+    
+    frame_count = 0
     
     while True:
         ret, frame = cap.read()
@@ -187,29 +196,27 @@ async def process_video(server):
             await server.send_log_event("END", last_count, "Видеопоток завершен")
             break
         
-        # Пропускаем каждый 2-й кадр для снижения нагрузки (опционально)
-        frame_skip += 1
-        if frame_skip % 2 == 0:
-            # Все равно отправляем последний кадр, но не обрабатываем
-            detection_data = {
-                'count': last_count,
-                'cows': [],
-                'timestamp': datetime.now().strftime("%H:%M:%S")
-            }
-            await server.send_frame(frame, detection_data)
-            continue
-            
-        # Инференс
+        frame_count += 1
+        
+        # Инференс на каждом кадре (убрали frame_skip)
         try:
             results = model.track(frame, persist=True, conf=CONF_THRESH, verbose=False)
         except Exception as e:
             print(f"Ошибка инференса: {e}")
+            # Если ошибка, отправляем кадр без детекций
+            detection_data = {
+                'count': last_count,
+                'cows': last_detections,
+                'timestamp': datetime.now().strftime("%H:%M:%S")
+            }
+            await server.send_frame(frame, detection_data)
+            await asyncio.sleep(frame_delay)
             continue
         
         # Обработка детекций
         boxes = results[0].boxes
         cow_count = 0
-        detections = []
+        current_detections = []
         
         if boxes is not None and boxes.id is not None:
             ids = boxes.id.int().cpu().tolist()
@@ -220,6 +227,13 @@ async def process_video(server):
             # Отрисовка рамок прямо на кадре
             for b_id, b_xyxy, conf in zip(ids, coords, confs):
                 x1, y1, x2, y2 = map(int, b_xyxy)
+                
+                # Проверяем, что координаты в пределах кадра
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(frame.shape[1], x2)
+                y2 = min(frame.shape[0], y2)
+                
                 cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR_BOX, 2)
                 
                 caption = f"#{b_id}"
@@ -228,34 +242,46 @@ async def process_video(server):
                 cv2.putText(frame, caption, (x1, y1 - 5), FONT, 0.5, (0, 0, 0), 1)
                 
                 # Сохраняем данные для фронта
-                detections.append({
+                current_detections.append({
                     'id': b_id,
                     'bbox': [x1, y1, x2, y2],
                     'confidence': round(conf, 2)
                 })
         
+        # Сглаживание: если детекций нет, но были на прошлых кадрах - показываем последние
+        if cow_count == 0 and last_count > 0 and frame_count % smoothing_frames != 0:
+            # На некоторых кадрах YOLO может терять объекты, используем последние детекции
+            current_detections = last_detections
+            cow_count = last_count
+        
+        # Обновляем последние детекции
+        if cow_count > 0:
+            last_detections = current_detections
+            last_count = cow_count
+        
         # Оверлей с инфой на кадре
         cv2.putText(frame, f"Cows: {cow_count}", (10, 30), FONT, 0.7, COLOR_TEXT, 2)
+        cv2.putText(frame, f"Frame: {frame_count}", (10, 60), FONT, 0.5, (180, 180, 180), 1)
         
         # Логирование
         current_time = time.time()
-        if current_time - last_log_time > LOG_INTERVAL or cow_count != last_count:
-            log_to_excel(LOG_FILE, "MONITORING", cow_count, f"Количество коров: {cow_count}")
-            # Отправляем лог клиентам
-            await server.send_log_event("MONITORING", cow_count, f"Количество коров: {cow_count}")
-            last_log_time = current_time
-            last_count = cow_count
+        if current_time - last_log_time > LOG_INTERVAL:
+            if cow_count != last_count or current_time - last_log_time > LOG_INTERVAL:
+                log_to_excel(LOG_FILE, "MONITORING", cow_count, f"Количество коров: {cow_count}")
+                await server.send_log_event("MONITORING", cow_count, f"Количество коров: {cow_count}")
+                last_log_time = current_time
         
         # Отправляем кадр клиентам
         detection_data = {
             'count': cow_count,
-            'cows': detections,
-            'timestamp': datetime.now().strftime("%H:%M:%S")
+            'cows': current_detections,
+            'timestamp': datetime.now().strftime("%H:%M:%S"),
+            'frame': frame_count
         }
         await server.send_frame(frame, detection_data)
         
-        # Небольшая задержка для контроля FPS
-        await asyncio.sleep(0.033)  # ~30 FPS
+        # Задержка для реального FPS видео
+        await asyncio.sleep(frame_delay)
         
     # Освобождение ресурсов
     cap.release()
